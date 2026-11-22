@@ -1,0 +1,1366 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>عدّاد الأشياء</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600&family=Readex+Pro:wght@500;600;700&display=swap">
+<style>
+:root {
+  /* Layout: a one-screen counting instrument. The dark photo stage takes the room, the running count sits on it
+     as a HUD, and a compact control deck docks under it on phones (beside it on wide screens). */
+  --bg: #e6eaed;
+  --deck: #ffffff;
+  --ink: #13202a;
+  --muted: #566572;
+  --line: #cfd7dd;
+  --field: #f0f3f5;
+  --accent: #ffb000;
+  --accent-ink: #1f1500;
+  --stage: #0a0f14;
+  --warn: #8a5600;
+  --bad: #b42318;
+  --font-display: "Readex Pro", "IBM Plex Sans Arabic", "Segoe UI", Tahoma, sans-serif;
+  --font-body: "IBM Plex Sans Arabic", "Segoe UI", Tahoma, sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0b1116; --deck: #151d24; --ink: #e4ebf0; --muted: #93a2ae; --line: #26323c; --field: #1a242d;
+    --warn: #ffcb6b; --bad: #ff8f85; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0b1116; --deck: #151d24; --ink: #e4ebf0; --muted: #93a2ae; --line: #26323c; --field: #1a242d;
+  --warn: #ffcb6b; --bad: #ff8f85; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--bg); color: var(--ink);
+  font: 15px/1.5 var(--font-body);
+  -webkit-tap-highlight-color: transparent; -webkit-text-size-adjust: 100%;
+}
+[hidden] { display: none !important; }
+:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+.app {
+  height: 100%; max-width: 1180px; margin: 0 auto;
+  display: grid; grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-areas: "head" "stage" "deck";
+}
+.head {
+  grid-area: head; display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: calc(10px + env(safe-area-inset-top)) calc(16px + env(safe-area-inset-right)) 10px calc(16px + env(safe-area-inset-left));
+}
+.brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.brand svg { flex: none; }
+.brand h1 { margin: 0; font: 700 19px/1.2 var(--font-display); text-wrap: balance; }
+.brand p { margin: 0; font-size: 12.5px; color: var(--muted); }
+.tag {
+  flex: none; font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 999px;
+  background: var(--field); border: 1px solid var(--line); color: var(--muted);
+}
+
+.stage {
+  grid-area: stage; position: relative; overflow: hidden; min-height: 260px;
+  background: var(--stage); border-radius: 16px;
+  margin: 0 calc(12px + env(safe-area-inset-right)) 0 calc(12px + env(safe-area-inset-left));
+  touch-action: none; user-select: none; -webkit-user-select: none;
+}
+#view { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: crosshair; }
+.stage.picking #view { cursor: cell; }
+video { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+
+.hud {
+  position: absolute; top: 10px; inset-inline-start: 10px; max-width: calc(100% - 20px);
+  display: flex; align-items: center; gap: 12px; padding: 7px 10px 7px 14px; border-radius: 14px;
+  background: rgba(7, 11, 15, 0.76); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.09); color: #fff;
+}
+.hud-num {
+  font: 700 40px/1 var(--font-display); font-variant-numeric: tabular-nums;
+  color: var(--accent); min-width: 1.3ch; text-align: center;
+}
+.hud-meta { display: grid; gap: 2px; min-width: 0; }
+.hud-label { font-weight: 600; font-size: 14px; overflow-wrap: anywhere; }
+.hud-src { font-size: 12px; color: #aab6c0; }
+.icon-btn {
+  appearance: none; flex: none; width: 36px; height: 36px; border-radius: 10px; cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, 0.15); background: rgba(255, 255, 255, 0.06); color: #fff;
+  display: grid; place-items: center;
+}
+.tools { position: absolute; bottom: 10px; inset-inline-end: 10px; display: flex; gap: 8px; }
+.tool {
+  appearance: none; display: inline-flex; align-items: center; gap: 6px; height: 38px; padding: 0 12px;
+  border-radius: 11px; border: 1px solid rgba(255, 255, 255, 0.15); cursor: pointer;
+  background: rgba(7, 11, 15, 0.76); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+  color: #fff; font: 600 13.5px/1 var(--font-body);
+}
+.tool:disabled { opacity: 0.4; cursor: default; }
+.flip { transform: scaleX(-1); }
+.busy {
+  position: absolute; left: 10px; right: 10px; bottom: 10px;
+  display: flex; align-items: center; gap: 10px; padding: 8px 8px 8px 12px; border-radius: 12px;
+  background: rgba(7, 11, 15, 0.86); color: #fff; font-size: 14px;
+}
+.busy span.grow { flex: 1; }
+.pulse { flex: none; width: 10px; height: 10px; border-radius: 50%; background: var(--accent); animation: pulse 1.1s ease-in-out infinite; }
+@keyframes pulse { 0%, 100% { opacity: 0.35; transform: scale(0.8); } 50% { opacity: 1; transform: scale(1.15); } }
+
+.deck {
+  grid-area: deck; display: grid; gap: 10px; align-content: start;
+  padding: 12px calc(16px + env(safe-area-inset-right)) calc(14px + env(safe-area-inset-bottom)) calc(16px + env(safe-area-inset-left));
+}
+.row2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.row2 .btn span { white-space: nowrap; }
+#liveBtn { grid-column: 1 / -1; }
+.btn {
+  appearance: none; display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  min-height: 46px; padding: 0 12px; border-radius: 12px; cursor: pointer; text-align: center;
+  border: 1px solid var(--line); background: var(--deck); color: var(--ink);
+  font: 600 15px/1.15 var(--font-body);
+}
+.btn svg { flex: none; }
+.btn:active { transform: translateY(1px); }
+.btn.primary { background: var(--accent); border-color: transparent; color: var(--accent-ink); min-height: 50px; font-size: 16px; }
+.btn:disabled, .btn.is-disabled { opacity: 0.5; cursor: not-allowed; }
+.vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.vh:focus-visible + .btn { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+.seg {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px;
+  background: var(--field); border: 1px solid var(--line); border-radius: 13px;
+}
+.seg button {
+  appearance: none; border: 0; border-radius: 10px; background: transparent; color: var(--muted); cursor: pointer;
+  font: 600 14px/1.2 var(--font-body); padding: 10px 8px;
+}
+.seg button[aria-checked="true"] { background: var(--deck); color: var(--ink); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.16); }
+.seg button:disabled { opacity: 0.45; cursor: not-allowed; }
+.note { margin: -4px 4px 0; font-size: 12.5px; color: var(--muted); }
+.opts { display: flex; align-items: center; gap: 10px; min-height: 44px; }
+.field {
+  flex: 1; min-width: 0; height: 44px; padding: 0 12px; border-radius: 11px;
+  border: 1px solid var(--line); background: var(--field); color: var(--ink); font: 15px var(--font-body);
+}
+.field::placeholder { color: var(--muted); opacity: 0.85; }
+.check { display: inline-flex; align-items: center; gap: 6px; font-size: 13.5px; color: var(--muted); white-space: nowrap; cursor: pointer; }
+.check input { width: 18px; height: 18px; margin: 0; accent-color: var(--accent); }
+.range { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; font-size: 13.5px; color: var(--muted); }
+.range input { flex: 1; min-width: 0; accent-color: var(--accent); }
+.opts .btn { min-height: 40px; font-size: 14px; padding: 0 12px; }
+.opts .btn[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.status { margin: 0; min-height: 1.5em; font-size: 13.5px; color: var(--muted); text-wrap: pretty; }
+.status[data-kind="warn"] { color: var(--warn); }
+.status[data-kind="bad"] { color: var(--bad); }
+
+@media (min-width: 900px) {
+  .app { grid-template-columns: minmax(0, 1fr) 380px; grid-template-rows: auto minmax(0, 1fr); grid-template-areas: "head head" "stage deck"; }
+  .stage { margin-left: 0; margin-bottom: calc(16px + env(safe-area-inset-bottom)); }
+  .deck { padding-top: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pulse { animation: none; }
+  .btn:active { transform: none; }
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="head">
+    <div class="brand">
+      <svg width="34" height="34" viewBox="0 0 34 34" aria-hidden="true">
+        <rect x="1" y="1" width="32" height="32" rx="9" fill="#ffb000"/>
+        <rect x="7.5" y="7.5" width="19" height="19" rx="2.5" fill="none" stroke="#1f1500" stroke-width="2" stroke-dasharray="4 3"/>
+        <circle cx="13.5" cy="14" r="2.2" fill="#1f1500"/><circle cx="20.5" cy="14" r="2.2" fill="#1f1500"/><circle cx="17" cy="20.5" r="2.2" fill="#1f1500"/>
+      </svg>
+      <div>
+        <h1>عدّاد الأشياء</h1>
+        <p>صوّر، حدّد المربع، واترك العدّ عليه</p>
+      </div>
+    </div>
+    <span class="tag" id="modeTag">صورة تجريبية</span>
+  </header>
+
+  <main class="stage" id="stage">
+    <canvas id="view" role="img" aria-label="الصورة"></canvas>
+    <video id="video" playsinline muted></video>
+
+    <div class="hud" id="hud">
+      <div class="hud-num" id="hudNum">—</div>
+      <div class="hud-meta">
+        <span class="hud-label" id="hudLabel">لم يُحسب بعد</span>
+        <span class="hud-src" id="hudSrc"></span>
+      </div>
+      <button class="icon-btn" id="copyBtn" type="button" aria-label="نسخ النتيجة" title="نسخ النتيجة" hidden>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></svg>
+      </button>
+    </div>
+
+    <div class="tools" id="tools">
+      <button class="tool" id="undoBtn" type="button" disabled>
+        <svg class="flip" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></svg>
+        <span>تراجع</span>
+      </button>
+      <button class="tool" id="zoomBtn" type="button">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>
+        <span id="zoomLabel">تكبير</span>
+      </button>
+    </div>
+
+    <div class="busy" id="busy" hidden>
+      <span class="pulse" aria-hidden="true"></span>
+      <span class="grow" id="busyText" aria-live="polite">Claude يعدّ…</span>
+      <button class="tool" id="stopBtn" type="button">إيقاف</button>
+    </div>
+  </main>
+
+  <section class="deck" aria-label="التحكم">
+    <div class="row2">
+      <input class="vh" type="file" id="camInput" accept="image/*" capture="environment">
+      <label class="btn file-btn" for="camInput">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>
+        <span>التقط صورة</span>
+      </label>
+      <input class="vh" type="file" id="galInput" accept="image/*">
+      <label class="btn file-btn" for="galInput">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M20.5 16l-5-5-8 8.5"/></svg>
+        <span>من الصور</span>
+      </label>
+      <button class="btn" id="liveBtn" type="button" hidden>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="13" height="12" rx="2"/><path d="M16 10.5l5-3v9l-5-3z"/></svg>
+        <span id="liveLabel">كاميرا مباشرة</span>
+      </button>
+    </div>
+
+    <div class="seg" role="radiogroup" aria-label="طريقة العدّ">
+      <button type="button" role="radio" id="engAI" aria-checked="false" disabled>ذكاء اصطناعي</button>
+      <button type="button" role="radio" id="engLocal" aria-checked="true">سريع على الجهاز</button>
+    </div>
+    <p class="note" id="aiNote">الذكاء الاصطناعي يعمل عند فتح الصفحة داخل Claude.</p>
+
+    <div class="opts" id="aiOpts" hidden>
+      <input class="field" type="text" id="hint" maxlength="60" autocomplete="off" aria-label="ماذا تريد أن تعدّ؟ (اختياري)" placeholder="ماذا أعدّ؟ مثل: بيض، براغي (اختياري)">
+      <label class="check"><input type="checkbox" id="precise"> دقة أعلى</label>
+    </div>
+    <div class="opts" id="localOpts">
+      <label class="range" for="sens">الحساسية <input type="range" id="sens" min="0" max="100" value="50"></label>
+      <button class="btn" id="pickBtn" type="button" aria-pressed="false"><span id="pickLabel">حدّد النوع</span></button>
+    </div>
+
+    <button class="btn primary" id="countBtn" type="button">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="3.5" width="17" height="17" rx="2" stroke-dasharray="3.2 2.6"/><circle cx="9.5" cy="10" r="1.3" fill="currentColor"/><circle cx="14.5" cy="10" r="1.3" fill="currentColor"/><circle cx="12" cy="14.5" r="1.3" fill="currentColor"/></svg>
+      <span id="countLabel">احسب</span>
+    </button>
+
+    <p class="status" id="status" aria-live="polite"></p>
+  </section>
+</div>
+<noscript>هذه الصفحة تحتاج JavaScript لتعمل.</noscript>
+
+<script>
+(() => {
+  'use strict';
+
+  const ACCENT = '#ffb000';
+  const NUM_FONT = '"Readex Pro", "IBM Plex Sans Arabic", system-ui, sans-serif';
+  const $ = (id) => document.getElementById(id);
+  const stageEl = $('stage'), view = $('view'), ctx = view.getContext('2d'), video = $('video');
+  const hudNum = $('hudNum'), hudLabel = $('hudLabel'), hudSrc = $('hudSrc'), copyBtn = $('copyBtn');
+  const engAI = $('engAI'), engLocal = $('engLocal'), aiNote = $('aiNote');
+  const aiOpts = $('aiOpts'), localOpts = $('localOpts');
+  const hintEl = $('hint'), preciseEl = $('precise'), sensEl = $('sens'), pickBtn = $('pickBtn'), pickLabel = $('pickLabel');
+  const countBtn = $('countBtn'), countLabel = $('countLabel');
+  const camInput = $('camInput'), galInput = $('galInput'), liveBtn = $('liveBtn'), liveLabel = $('liveLabel');
+  const statusEl = $('status'), modeTag = $('modeTag');
+  const toolsEl = $('tools'), zoomBtn = $('zoomBtn'), zoomLabel = $('zoomLabel'), undoBtn = $('undoBtn');
+  const busyEl = $('busy'), busyText = $('busyText'), stopBtn = $('stopBtn');
+
+  const mk = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
+  const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+  const median = (arr) => { if (!arr.length) return NaN; const s = Float64Array.from(arr).sort(); return s[s.length >> 1]; };
+  const store = {
+    get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* storage unavailable */ } },
+  };
+
+  const state = {
+    src: 'demo',          // demo | photo | live
+    stillSrc: 'demo',     // what state.img holds
+    img: null, imgId: 0,
+    box: null,            // {x, y, w, h} in source pixels
+    viewMode: 'full',     // full | box
+    engine: 'local', userPickedEngine: false, ai: 'off',
+    markers: [],          // [{x, y, m}] m = placed by hand
+    result: null,         // {source, item, unitR, offset, edited, streaming, live}
+    undo: [], exemplar: null, pickMode: false,
+    busy: false, aiCtl: null, stream: null,
+  };
+
+  function say(msg, kind) { statusEl.textContent = msg || ''; statusEl.dataset.kind = kind || ''; }
+
+  /* ---------------- demo photo (drawn, clearly labelled as an example) ---------------- */
+  function mulberry32(a) {
+    return function () {
+      a |= 0; a = (a + 0x6D2B79F5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  function drawPill(g, p, rnd) {
+    g.save();
+    g.shadowColor = 'rgba(0,0,0,0.5)'; g.shadowBlur = 16; g.shadowOffsetX = 3; g.shadowOffsetY = 7;
+    const gr = g.createRadialGradient(p.x - p.r * 0.35, p.y - p.r * 0.4, p.r * 0.1, p.x, p.y, p.r);
+    gr.addColorStop(0, '#ffffff'); gr.addColorStop(0.7, '#e8ecef'); gr.addColorStop(1, '#ccd3d9');
+    g.fillStyle = gr; g.beginPath(); g.arc(p.x, p.y, p.r, 0, Math.PI * 2); g.fill();
+    g.restore();
+    const a = rnd() * Math.PI, k = p.r * 0.7;
+    g.strokeStyle = 'rgba(120,130,140,0.35)'; g.lineWidth = 2.5; g.lineCap = 'round';
+    g.beginPath(); g.moveTo(p.x - Math.cos(a) * k, p.y - Math.sin(a) * k); g.lineTo(p.x + Math.cos(a) * k, p.y + Math.sin(a) * k); g.stroke();
+  }
+  function makeDemo() {
+    const W = 1200, H = 900, c = mk(W, H), g = c.getContext('2d');
+    const rnd = mulberry32(1122);
+    const bg = g.createRadialGradient(W * 0.4, H * 0.3, 60, W * 0.5, H * 0.55, W * 0.8);
+    bg.addColorStop(0, '#4f606e'); bg.addColorStop(1, '#202a33');
+    g.fillStyle = bg; g.fillRect(0, 0, W, H);
+    const im = g.getImageData(0, 0, W, H), d = im.data;
+    for (let i = 0; i < d.length; i += 4) { const n = (rnd() - 0.5) * 12; d[i] += n; d[i + 1] += n; d[i + 2] += n; }
+    g.putImageData(im, 0, 0);
+    const box = { x: 170, y: 120, w: 860, h: 660 };
+    const pills = [];
+    const fits = (x, y, r, gap) => pills.every((p) => Math.hypot(p.x - x, p.y - y) >= p.r + r + gap);
+    const inside = (x, y, r) => x - r > box.x + 14 && x + r < box.x + box.w - 14 && y - r > box.y + 14 && y + r < box.y + box.h - 14;
+    let pairs = 0, guard = 0;
+    while (pairs < 3 && guard++ < 4000) {   // three touching pairs, to show how merged items are split
+      const r1 = 31 + rnd() * 4, r2 = 31 + rnd() * 4, a = rnd() * Math.PI * 2;
+      const x1 = box.x + rnd() * box.w, y1 = box.y + rnd() * box.h;
+      const x2 = x1 + Math.cos(a) * (r1 + r2 - 3), y2 = y1 + Math.sin(a) * (r1 + r2 - 3);
+      if (!inside(x1, y1, r1) || !inside(x2, y2, r2) || !fits(x1, y1, r1, 18) || !fits(x2, y2, r2, 18)) continue;
+      pills.push({ x: x1, y: y1, r: r1 }, { x: x2, y: y2, r: r2 }); pairs++;
+    }
+    guard = 0;
+    while (pills.length < 28 && guard++ < 8000) {
+      const r = 31 + rnd() * 4, x = box.x + rnd() * box.w, y = box.y + rnd() * box.h;
+      if (inside(x, y, r) && fits(x, y, r, 16)) pills.push({ x, y, r });
+    }
+    const count = pills.length;
+    for (const [x, y] of [[70, 230], [95, 520], [60, 805], [1120, 300], [1135, 690], [600, 848]]) pills.push({ x, y, r: 31 + rnd() * 4 });
+    for (const p of pills) drawPill(g, p, rnd);
+    return { canvas: c, box, count };
+  }
+
+  /* ---------------- on-device counter ----------------
+     Background model from the box border (Coons patch over robust border profiles), colour distance to it,
+     Otsu threshold, small open/close, connected components, then a typical single-item size from the
+     convex, non-edge blobs; merged blobs count as round(area / unit) and get k-means markers. */
+  function blur3(a, W, H) {
+    const t = new Float32Array(a.length);
+    for (let y = 0; y < H; y++) {
+      const o = y * W;
+      t[o] = (2 * a[o] + a[o + 1]) / 3;
+      for (let x = 1; x < W - 1; x++) t[o + x] = (a[o + x - 1] + a[o + x] + a[o + x + 1]) / 3;
+      t[o + W - 1] = (a[o + W - 2] + 2 * a[o + W - 1]) / 3;
+    }
+    for (let x = 0; x < W; x++) {
+      a[x] = (2 * t[x] + t[x + W]) / 3;
+      for (let y = 1; y < H - 1; y++) { const p = y * W + x; a[p] = (t[p - W] + t[p] + t[p + W]) / 3; }
+      const p = (H - 1) * W + x; a[p] = (t[p - W] + 2 * t[p]) / 3;
+    }
+  }
+  function profileMedian(arr, win) {
+    const n = arr.length, half = win >> 1, step = Math.max(1, Math.floor(win / 6));
+    const keys = [], vals = [], tmp = [];
+    const at = (i) => {
+      tmp.length = 0;
+      for (let k = Math.max(0, i - half), e = Math.min(n - 1, i + half); k <= e; k++) tmp.push(arr[k]);
+      tmp.sort((a, b) => a - b);
+      keys.push(i); vals.push(tmp[tmp.length >> 1]);
+    };
+    for (let i = 0; i < n - 1; i += step) at(i);
+    at(n - 1);
+    const out = new Float32Array(n);
+    let j = 0;
+    for (let i = 0; i < n; i++) {
+      while (j < keys.length - 2 && keys[j + 1] <= i) j++;
+      const k0 = keys[j], k1 = keys[Math.min(j + 1, keys.length - 1)];
+      const t = k1 === k0 ? 0 : clamp((i - k0) / (k1 - k0), 0, 1);
+      out[i] = vals[j] + (vals[Math.min(j + 1, keys.length - 1)] - vals[j]) * t;
+    }
+    return out;
+  }
+  function coons(a, W, H) {
+    const d = Math.max(1, Math.round(Math.min(W, H) * 0.012));
+    const top = new Float32Array(W), bot = new Float32Array(W), lef = new Float32Array(H), rig = new Float32Array(H);
+    for (let x = 0; x < W; x++) { let s1 = 0, s2 = 0; for (let k = 0; k < d; k++) { s1 += a[k * W + x]; s2 += a[(H - 1 - k) * W + x]; } top[x] = s1 / d; bot[x] = s2 / d; }
+    for (let y = 0; y < H; y++) { let s1 = 0, s2 = 0; for (let k = 0; k < d; k++) { s1 += a[y * W + k]; s2 += a[y * W + W - 1 - k]; } lef[y] = s1 / d; rig[y] = s2 / d; }
+    const wv = (n) => Math.max(5, Math.round(n * 0.3)) | 1;
+    const T1 = profileMedian(top, wv(W)), B1 = profileMedian(bot, wv(W)), L1 = profileMedian(lef, wv(H)), R1 = profileMedian(rig, wv(H));
+    const tl = (T1[0] + L1[0]) / 2, tr = (T1[W - 1] + R1[0]) / 2, bl = (B1[0] + L1[H - 1]) / 2, br = (B1[W - 1] + R1[H - 1]) / 2;
+    const out = new Float32Array(W * H);
+    for (let y = 0; y < H; y++) {
+      const v = H > 1 ? y / (H - 1) : 0, ly = L1[y], ry = R1[y];
+      for (let x = 0; x < W; x++) {
+        const u = W > 1 ? x / (W - 1) : 0;
+        out[y * W + x] = (1 - v) * T1[x] + v * B1[x] + (1 - u) * ly + u * ry
+          - ((1 - u) * (1 - v) * tl + u * (1 - v) * tr + (1 - u) * v * bl + u * v * br);
+      }
+    }
+    return out;
+  }
+  function cdist(r1, g1, b1, r2, g2, b2) {
+    const rm = (r1 + r2) * 0.5, dr = r1 - r2, dg = g1 - g2, db = b1 - b2;
+    return Math.sqrt((2 + rm / 256) * dr * dr + 4 * dg * dg + (2 + (255 - rm) / 256) * db * db) / 3;
+  }
+  function otsu(D) {
+    let mx = 0;
+    for (let i = 0; i < D.length; i++) if (D[i] > mx) mx = D[i];
+    if (mx <= 0) return 0;
+    const bins = 256, h = new Float64Array(bins), k = (bins - 1) / mx;
+    for (let i = 0; i < D.length; i++) h[(D[i] * k) | 0]++;
+    let sum = 0; for (let i = 0; i < bins; i++) sum += i * h[i];
+    let sumB = 0, wB = 0, best = -1, thr = 0;
+    const total = D.length;
+    for (let i = 0; i < bins; i++) {
+      wB += h[i]; if (!wB) continue;
+      const wF = total - wB; if (!wF) break;
+      sumB += i * h[i];
+      const mB = sumB / wB, mF = (sum - sumB) / wF, between = wB * wF * (mB - mF) * (mB - mF);
+      if (between > best) { best = between; thr = i; }
+    }
+    return (thr + 0.5) / k;
+  }
+  function morph(M, W, H, erode) {
+    const t = new Uint8Array(M.length), o = new Uint8Array(M.length);
+    for (let y = 0; y < H; y++) {
+      const r = y * W;
+      for (let x = 0; x < W; x++) {
+        const p = r + x, a = x > 0 ? M[p - 1] : M[p], b = M[p], c = x < W - 1 ? M[p + 1] : M[p];
+        t[p] = erode ? (a & b & c) : (a | b | c);
+      }
+    }
+    for (let y = 0; y < H; y++) {
+      const r = y * W;
+      for (let x = 0; x < W; x++) {
+        const p = r + x, a = y > 0 ? t[p - W] : t[p], b = t[p], c = y < H - 1 ? t[p + W] : t[p];
+        o[p] = erode ? (a & b & c) : (a | b | c);
+      }
+    }
+    return o;
+  }
+  const gcd = (a, b) => { while (b) { const t = a % b; a = b; b = t; } return a; };
+  function solidity(pts, area) {
+    // Convex hull of boundary pixel centres; Pick's theorem turns the hull into a lattice-point count,
+    // so a convex digital shape scores ~1 at any size.
+    const n = pts.length / 2;
+    if (n < 3) return 1;
+    const order = new Array(n);
+    for (let i = 0; i < n; i++) order[i] = i;
+    order.sort((a, b) => (pts[2 * a] - pts[2 * b]) || (pts[2 * a + 1] - pts[2 * b + 1]));
+    const X = (i) => pts[2 * i], Y = (i) => pts[2 * i + 1];
+    const cross = (o, a, b) => (X(a) - X(o)) * (Y(b) - Y(o)) - (Y(a) - Y(o)) * (X(b) - X(o));
+    const lo = [], up = [];
+    for (const i of order) { while (lo.length >= 2 && cross(lo[lo.length - 2], lo[lo.length - 1], i) <= 0) lo.pop(); lo.push(i); }
+    for (let k = n - 1; k >= 0; k--) { const i = order[k]; while (up.length >= 2 && cross(up[up.length - 2], up[up.length - 1], i) <= 0) up.pop(); up.push(i); }
+    const hull = lo.slice(0, -1).concat(up.slice(0, -1));
+    const h = hull.length;
+    if (h < 3) return 1;
+    let A2 = 0, Bp = 0;
+    for (let k = 0; k < h; k++) {
+      const a = hull[k], b = hull[(k + 1) % h];
+      A2 += X(a) * Y(b) - X(b) * Y(a);
+      Bp += gcd(Math.abs(X(b) - X(a)), Math.abs(Y(b) - Y(a)));
+    }
+    return Math.min(1, area / (Math.abs(A2) / 2 + Bp / 2 + 1));
+  }
+  function kmeans(xs, ys, k, iters = 15) {
+    const n = xs.length;
+    if (!n) return [];
+    k = Math.min(k, n);
+    const cx = new Float64Array(k), cy = new Float64Array(k);
+    let mx = 0, my = 0;
+    for (let i = 0; i < n; i++) { mx += xs[i]; my += ys[i]; }
+    mx /= n; my /= n;
+    let first = 0, fd = -1;
+    for (let i = 0; i < n; i++) { const d = (xs[i] - mx) ** 2 + (ys[i] - my) ** 2; if (d > fd) { fd = d; first = i; } }
+    cx[0] = xs[first]; cy[0] = ys[first];
+    const dmin = new Float64Array(n).fill(Infinity);
+    for (let c = 1; c < k; c++) {
+      let far = 0, best = -1;
+      for (let i = 0; i < n; i++) {
+        const d = (xs[i] - cx[c - 1]) ** 2 + (ys[i] - cy[c - 1]) ** 2;
+        if (d < dmin[i]) dmin[i] = d;
+        if (dmin[i] > best) { best = dmin[i]; far = i; }
+      }
+      cx[c] = xs[far]; cy[c] = ys[far];
+    }
+    const asg = new Int32Array(n);
+    for (let it = 0; it < iters; it++) {
+      for (let i = 0; i < n; i++) {
+        let bi = 0, bd = Infinity;
+        for (let c = 0; c < k; c++) { const d = (xs[i] - cx[c]) ** 2 + (ys[i] - cy[c]) ** 2; if (d < bd) { bd = d; bi = c; } }
+        asg[i] = bi;
+      }
+      const sx = new Float64Array(k), sy = new Float64Array(k), sn = new Int32Array(k);
+      for (let i = 0; i < n; i++) { sx[asg[i]] += xs[i]; sy[asg[i]] += ys[i]; sn[asg[i]]++; }
+      let moved = 0;
+      for (let c = 0; c < k; c++) {
+        if (!sn[c]) continue;
+        const nx = sx[c] / sn[c], ny = sy[c] / sn[c];
+        moved += Math.abs(nx - cx[c]) + Math.abs(ny - cy[c]);
+        cx[c] = nx; cy[c] = ny;
+      }
+      if (moved < 0.1) break;
+    }
+    const out = [];
+    for (let c = 0; c < k; c++) out.push([cx[c], cy[c]]);
+    return out;
+  }
+  function dtPeaks(M, L, idx, W, H) {
+    // Exact Euclidean distance transform (Felzenszwalb-Huttenlocher). Each touching round item leaves a
+    // peak at its centre: the median peak is the typical radius, and the peaks themselves mark the items.
+    // Used when items touch, e.g. eggs in a tray.
+    const N = W * H, INF = 1e12, D = new Float64Array(N);
+    const n = Math.max(W, H), f = new Float64Array(n), d = new Float64Array(n), v = new Int32Array(n), z = new Float64Array(n + 1);
+    const pass = (len) => {
+      let k = 0;
+      v[0] = 0; z[0] = -INF; z[1] = INF;
+      for (let q = 1; q < len; q++) {
+        let r = v[k], s = ((f[q] + q * q) - (f[r] + r * r)) / (2 * q - 2 * r);
+        while (s <= z[k]) { k--; r = v[k]; s = ((f[q] + q * q) - (f[r] + r * r)) / (2 * q - 2 * r); }
+        k++; v[k] = q; z[k] = s; z[k + 1] = INF;
+      }
+      k = 0;
+      for (let q = 0; q < len; q++) { while (z[k + 1] < q) k++; const r = v[k]; d[q] = (q - r) * (q - r) + f[r]; }
+    };
+    for (let x = 0; x < W; x++) {
+      for (let y = 0; y < H; y++) f[y] = M[y * W + x] ? INF : 0;
+      pass(H);
+      for (let y = 0; y < H; y++) D[y * W + x] = d[y];
+    }
+    for (let y = 0; y < H; y++) {
+      const o = y * W;
+      for (let x = 0; x < W; x++) f[x] = D[o + x];
+      pass(W);
+      for (let x = 0; x < W; x++) D[o + x] = Math.sqrt(d[x]);
+    }
+    // A true centre is the highest point within half its own radius; ridge pixels between touching
+    // items can pass a 3x3 test but fail this wider one.
+    const cand = [];
+    for (let y = 1; y < H - 1; y++) {
+      for (let x = 1; x < W - 1; x++) {
+        const p = y * W + x, val = D[p];
+        if (val < 2 || val > 1e5 || idx[L[p]] < 0) continue;
+        if (!(val >= D[p - 1] && val >= D[p + 1] && val >= D[p - W] && val >= D[p + W] &&
+            val >= D[p - W - 1] && val >= D[p - W + 1] && val >= D[p + W - 1] && val >= D[p + W + 1])) continue;
+        const k = Math.max(2, Math.round(val * 0.5));
+        let ok = true;
+        for (let yy = Math.max(0, y - k); ok && yy <= Math.min(H - 1, y + k); yy++) {
+          const o = yy * W;
+          for (let xx = Math.max(0, x - k); xx <= Math.min(W - 1, x + k); xx++) if (D[o + xx] > val) { ok = false; break; }
+        }
+        if (ok) cand.push({ x, y, v: val, l: L[p] });
+      }
+    }
+    if (!cand.length) return { r: 0, peaks: [] };
+    const r = median(cand.map((c) => c.v));
+    // merge plateau duplicates: keep the strongest peak, drop others closer than 0.8 of its radius
+    cand.sort((a, b) => b.v - a.v);
+    const cell = Math.max(4, Math.round(r)), grid = new Map(), peaks = [];
+    for (const c of cand) {
+      const rad = Math.max(2, 0.8 * c.v), rad2 = rad * rad, gx = Math.floor(c.x / cell), gy = Math.floor(c.y / cell), span = Math.ceil(rad / cell);
+      let ok = true;
+      for (let yy = gy - span; ok && yy <= gy + span; yy++) {
+        for (let xx = gx - span; ok && xx <= gx + span; xx++) {
+          const list = grid.get(yy * 65536 + xx);
+          if (list) for (const a of list) if ((a.x - c.x) ** 2 + (a.y - c.y) ** 2 < rad2) { ok = false; break; }
+        }
+      }
+      if (!ok) continue;
+      peaks.push(c);
+      const key = gy * 65536 + gx;
+      if (!grid.has(key)) grid.set(key, []);
+      grid.get(key).push(c);
+    }
+    return { r, peaks };
+  }
+  function findLabel(L, W, H, x0, y0, rmax) {
+    if (x0 >= 0 && y0 >= 0 && x0 < W && y0 < H && L[y0 * W + x0]) return L[y0 * W + x0];
+    let best = 0, bd = Infinity;
+    for (let y = Math.max(0, y0 - rmax); y <= Math.min(H - 1, y0 + rmax); y++) {
+      for (let x = Math.max(0, x0 - rmax); x <= Math.min(W - 1, x0 + rmax); x++) {
+        const l = L[y * W + x]; if (!l) continue;
+        const d = (x - x0) ** 2 + (y - y0) ** 2;
+        if (d < bd) { bd = d; best = l; }
+      }
+    }
+    return best;
+  }
+  function sortReading(pts, r) {
+    const band = Math.max(1, r * 2.2);
+    return pts.sort((a, b) => (Math.floor(a.y / band) - Math.floor(b.y / band)) || (b.x - a.x));
+  }
+
+  const workC = mk(16, 16);
+  function localCount(src, box, opt) {
+    const maxSide = opt.maxSide || 720;
+    const sc = Math.min(1, maxSide / Math.max(box.w, box.h));
+    const W = Math.max(16, Math.round(box.w * sc)), H = Math.max(16, Math.round(box.h * sc));
+    const sx = W / box.w, sy = H / box.h;
+    if (workC.width !== W || workC.height !== H) { workC.width = W; workC.height = H; }
+    const g = workC.getContext('2d', { willReadFrequently: true });
+    g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
+    g.clearRect(0, 0, W, H);
+    g.drawImage(src, box.x, box.y, box.w, box.h, 0, 0, W, H);
+    const px = g.getImageData(0, 0, W, H).data;
+    const N = W * H;
+    const empty = { points: [], count: 0, r: Math.max(box.w, box.h) * 0.03, borderBusy: 0, exFound: false };
+
+    const R = new Float32Array(N), G = new Float32Array(N), B = new Float32Array(N);
+    for (let i = 0, j = 0; i < N; i++, j += 4) { R[i] = px[j]; G[i] = px[j + 1]; B[i] = px[j + 2]; }
+    blur3(R, W, H); blur3(G, W, H); blur3(B, W, H);
+    const bR = coons(R, W, H), bG = coons(G, W, H), bB = coons(B, W, H);
+    const D = new Float32Array(N);
+    for (let i = 0; i < N; i++) D[i] = cdist(R[i], G[i], B[i], bR[i], bG[i], bB[i]);
+    const thr = Math.max(14, otsu(D) * (1.6 - 1.2 * opt.sensitivity));
+    let M = new Uint8Array(N);
+    for (let i = 0; i < N; i++) M[i] = D[i] > thr ? 1 : 0;
+    M = morph(morph(M, W, H, true), W, H, false);
+    M = morph(morph(M, W, H, false), W, H, true);
+
+    let bf = 0, bn = 0;
+    for (let x = 0; x < W; x++) { bf += M[x] + M[(H - 1) * W + x]; bn += 2; }
+    for (let y = 1; y < H - 1; y++) { bf += M[y * W] + M[y * W + W - 1]; bn += 2; }
+    const borderBusy = bf / bn;
+
+    const L = new Int32Array(N), stack = new Int32Array(N), comps = [null];
+    for (let p = 0; p < N; p++) {
+      if (!M[p] || L[p]) continue;
+      const id = comps.length;
+      let sp = 0; stack[sp++] = p; L[p] = id;
+      let area = 0, sxx = 0, syy = 0, cr = 0, cg = 0, cb = 0, edge = 0;
+      while (sp) {
+        const q = stack[--sp], x = q % W, y = (q - x) / W, j = q * 4;
+        area++; sxx += x; syy += y; cr += px[j]; cg += px[j + 1]; cb += px[j + 2];
+        if (x === 0) edge |= 1; else if (M[q - 1] && !L[q - 1]) { L[q - 1] = id; stack[sp++] = q - 1; }
+        if (x === W - 1) edge |= 2; else if (M[q + 1] && !L[q + 1]) { L[q + 1] = id; stack[sp++] = q + 1; }
+        if (y === 0) edge |= 4; else if (M[q - W] && !L[q - W]) { L[q - W] = id; stack[sp++] = q - W; }
+        if (y === H - 1) edge |= 8; else if (M[q + W] && !L[q + W]) { L[q + W] = id; stack[sp++] = q + W; }
+      }
+      const sides = (edge & 1) + ((edge >> 1) & 1) + ((edge >> 2) & 1) + ((edge >> 3) & 1);
+      comps.push({ id, area, cx: sxx / area, cy: syy / area, col: [cr / area, cg / area, cb / area], edge, sides, sol: 1, n: 0 });
+    }
+
+    const minA = Math.max(6, N * 0.00003);
+    let cands = comps.slice(1).filter((c) => c.area >= minA && !(c.sides >= 2 && c.area > 0.2 * N));
+    if (!cands.length) return { ...empty, borderBusy };
+    // area-weighted median: the size most foreground pixels belong to, so specks of noise can't drag it down
+    const byArea = cands.slice().sort((a, b) => a.area - b.area);
+    let tot = 0; for (const c of byArea) tot += c.area;
+    let acc = 0, mw = byArea[byArea.length - 1].area;
+    for (const c of byArea) { acc += c.area; if (acc >= tot / 2) { mw = c.area; break; } }
+    cands = cands.filter((c) => c.area >= 0.2 * mw);
+
+    const idx = new Int32Array(comps.length).fill(-1);
+    cands.forEach((c, i) => { idx[c.id] = i; });
+    const bpts = cands.map(() => []);
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const p = y * W + x, l = L[p];
+        if (!l) continue;
+        const ci = idx[l];
+        if (ci < 0) continue;
+        if (x === 0 || y === 0 || x === W - 1 || y === H - 1 || L[p - 1] !== l || L[p + 1] !== l || L[p - W] !== l || L[p + W] !== l) bpts[ci].push(x, y);
+      }
+    }
+    cands.forEach((c, i) => { c.sol = solidity(bpts[i], c.area); });
+
+    let singles = cands.filter((c) => c.sol >= 0.93 && !c.edge).map((c) => c.area);
+    if (!singles.length) singles = cands.filter((c) => c.sol >= 0.93).map((c) => c.area);
+    let unit, dt = null;
+    if (singles.length) unit = median(singles);
+    else {
+      dt = dtPeaks(M, L, idx, W, H);
+      unit = dt.r >= 2 ? Math.PI * dt.r * dt.r : median(cands.map((c) => c.area));
+    }
+
+    let exFound = false;
+    if (opt.exemplar) {
+      const ex0 = Math.round((opt.exemplar.x - box.x) * sx), ey0 = Math.round((opt.exemplar.y - box.y) * sy);
+      const lab = findLabel(L, W, H, ex0, ey0, Math.max(4, Math.round(Math.sqrt(unit) * 0.6)));
+      if (lab && idx[lab] >= 0) {
+        const ex = comps[lab];
+        exFound = true;
+        unit = ex.area / (ex.sol >= 0.9 ? 1 : Math.max(1, Math.round(ex.area / unit)));
+        const q = Math.round(ex.cy) * W + Math.round(ex.cx);
+        const contrast = cdist(ex.col[0], ex.col[1], ex.col[2], bR[q], bG[q], bB[q]);
+        const tau = clamp(contrast * 0.5, 22, 90);
+        cands = cands.filter((c) => cdist(c.col[0], c.col[1], c.col[2], ex.col[0], ex.col[1], ex.col[2]) <= tau);
+      }
+    }
+
+    for (const c of cands) {
+      let n = c.area < 0.4 * unit ? 0 : Math.max(1, Math.round(c.area / unit));
+      if (n >= 2 && c.sol >= 0.95 && c.area < 1.8 * unit) n = 1;
+      c.n = Math.min(n, 3000);
+    }
+    // Large touching groups: count the distance-transform peaks when they agree with the area estimate.
+    if (!dt && cands.some((c) => c.n > 30)) dt = dtPeaks(M, L, idx, W, H);
+    if (dt && dt.peaks.length) {
+      const byLabel = new Map();
+      for (const p of dt.peaks) { if (!byLabel.has(p.l)) byLabel.set(p.l, []); byLabel.get(p.l).push(p); }
+      for (const c of cands) {
+        if (c.n < 2) continue;
+        const pk = byLabel.get(c.id) || [];
+        if (pk.length >= 2 && pk.length >= 0.6 * c.n && pk.length <= 1.5 * c.n) { c.n = pk.length; c.centers = pk.map((p) => [p.x, p.y]); }
+      }
+    }
+    const merged = cands.filter((c) => c.n >= 2 && !c.centers);
+    if (merged.length) {
+      const kidx = new Int32Array(comps.length).fill(-1);
+      merged.forEach((c, i) => { kidx[c.id] = i; });
+      const xs = merged.map(() => []), ys = merged.map(() => []), seen = new Int32Array(merged.length);
+      const stride = merged.map((c) => Math.max(1, Math.floor(c.area / Math.min(8000, Math.max(2500, c.n * 40)))));
+      for (let p = 0; p < N; p++) {
+        const l = L[p]; if (!l) continue;
+        const k = kidx[l]; if (k < 0) continue;
+        if (seen[k]++ % stride[k] === 0) { xs[k].push(p % W); ys[k].push((p / W) | 0); }
+      }
+      merged.forEach((c, i) => { c.centers = kmeans(xs[i], ys[i], c.n, c.n > 200 ? 0 : 15); });
+    }
+    const pts = [];
+    for (const c of cands) {
+      if (!c.n) continue;
+      if (c.n === 1) pts.push({ x: box.x + (c.cx + 0.5) / sx, y: box.y + (c.cy + 0.5) / sy });
+      else for (const [x, y] of c.centers) pts.push({ x: box.x + (x + 0.5) / sx, y: box.y + (y + 0.5) / sy });
+    }
+    const r = Math.sqrt(unit / Math.PI) / ((sx + sy) / 2);
+    return { points: sortReading(pts, r), count: pts.length, r, borderBusy, exFound };
+  }
+
+  /* ---------------- view ---------------- */
+  let T = { s: 1, ox: 0, oy: 0 }, lastDims = '';
+  function srcDims() {
+    if (state.src === 'live') return { w: video.videoWidth || 0, h: video.videoHeight || 0 };
+    return state.img ? { w: state.img.width, h: state.img.height } : { w: 0, h: 0 };
+  }
+  const toSrc = (x, y) => [(x - T.ox) / T.s, (y - T.oy) / T.s];
+  function computeT() {
+    const { w, h } = srcDims(), cw = view.clientWidth, ch = view.clientHeight;
+    if (!w || !h || !cw || !ch) return;
+    let rx = 0, ry = 0, rw = w, rh = h;
+    if (state.viewMode === 'box' && state.box) {
+      const m = 0.04 * Math.max(state.box.w, state.box.h);
+      rx = state.box.x - m; ry = state.box.y - m; rw = state.box.w + 2 * m; rh = state.box.h + 2 * m;
+    }
+    const roomy = ch > 380;
+    const pt = roomy ? 66 : 10, pb = roomy ? 56 : 10, px = 10;
+    const s = Math.min((cw - 2 * px) / rw, (ch - pt - pb) / rh);
+    T = { s, ox: (cw - rw * s) / 2 - rx * s, oy: pt + (ch - pt - pb - rh * s) / 2 - ry * s };
+    lastDims = w + 'x' + h;
+  }
+  function markerRadius() {
+    const r = state.result && state.result.unitR ? state.result.unitR : 10;
+    return clamp(r * T.s * 0.6, 4.5, 18);
+  }
+  function draw() {
+    const cw = view.clientWidth, ch = view.clientHeight;
+    ctx.clearRect(0, 0, cw, ch);
+    const src = state.src === 'live' ? video : state.img, { w, h } = srcDims();
+    if (!src || !w) return;
+    ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(src, T.ox, T.oy, w * T.s, h * T.s);
+    const b = state.box;
+    if (b) {
+      const bx = b.x * T.s + T.ox, by = b.y * T.s + T.oy, bw = b.w * T.s, bh = b.h * T.s;
+      ctx.save();
+      ctx.fillStyle = 'rgba(4,7,10,0.58)';
+      ctx.beginPath(); ctx.rect(0, 0, cw, ch); ctx.rect(bx, by, bw, bh); ctx.fill('evenodd');
+      ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.strokeRect(bx, by, bw, bh);
+      ctx.lineWidth = 2; ctx.strokeStyle = ACCENT; ctx.strokeRect(bx, by, bw, bh);
+      if (state.viewMode === 'full' && !state.busy) {
+        const L = Math.min(20, bw / 3, bh / 3);
+        ctx.lineWidth = 5; ctx.lineCap = 'round';
+        ctx.beginPath();
+        for (const [x, y, dx, dy] of [[bx, by, 1, 1], [bx + bw, by, -1, 1], [bx, by + bh, 1, -1], [bx + bw, by + bh, -1, -1]]) {
+          ctx.moveTo(x + dx * L, y); ctx.lineTo(x, y); ctx.lineTo(x, y + dy * L);
+        }
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+    if (state.exemplar) {
+      const x = state.exemplar.x * T.s + T.ox, y = state.exemplar.y * T.s + T.oy;
+      ctx.save(); ctx.setLineDash([4, 3]); ctx.lineWidth = 2; ctx.strokeStyle = '#ffffff';
+      ctx.beginPath(); ctx.arc(x, y, markerRadius() + 7, 0, Math.PI * 2); ctx.stroke(); ctx.restore();
+    }
+    drawMarkers();
+  }
+  function drawMarkers() {
+    const ms = state.markers;
+    if (!ms.length) return;
+    const r = markerRadius(), num = r >= 8.5 && ms.length <= 600 && state.src !== 'live';
+    ctx.save();
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    for (let i = 0; i < ms.length; i++) {
+      const m = ms[i], x = m.x * T.s + T.ox, y = m.y * T.s + T.oy;
+      ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fillStyle = m.m ? '#ffffff' : ACCENT; ctx.fill();
+      ctx.lineWidth = m.m ? 2.5 : 1.5; ctx.strokeStyle = m.m ? ACCENT : 'rgba(12,10,4,0.9)'; ctx.stroke();
+      if (num) {
+        ctx.font = `700 ${Math.round(r * (i >= 99 ? 0.78 : 1.02))}px ${NUM_FONT}`;
+        ctx.fillStyle = '#1f1500'; ctx.fillText(String(i + 1), x, y + r * 0.06);
+      }
+    }
+    ctx.restore();
+  }
+  function resize() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2.5), cw = stageEl.clientWidth, ch = stageEl.clientHeight;
+    if (!cw || !ch) return;
+    view.width = Math.round(cw * dpr); view.height = Math.round(ch * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    computeT(); draw();
+  }
+
+  /* ---------------- HUD and controls ---------------- */
+  function updateHUD() {
+    const r = state.result;
+    let n = null, label, src = '';
+    if (r) {
+      n = r.display != null ? r.display : state.markers.length + (r.offset || 0);
+      label = r.item || 'قطعة';
+      src = r.source === 'ai' ? (r.streaming ? 'Claude يعدّ…' : 'ذكاء اصطناعي')
+        : r.source === 'local' ? (r.live ? 'معاينة مباشرة' : 'سريع على الجهاز') : 'عدّ يدوي';
+      if (state.src === 'demo') src = 'مثال · ' + src;
+      if (r.edited) src += ' · مع تعديلك';
+    } else {
+      label = state.src === 'live' ? 'وجّه الكاميرا' : 'لم يُحسب بعد';
+    }
+    hudNum.textContent = n === null ? '—' : String(n);
+    hudLabel.textContent = label;
+    hudSrc.textContent = src;
+    copyBtn.hidden = n === null || state.src === 'live' || !!(r && r.streaming);
+    view.setAttribute('aria-label', n === null ? 'الصورة' : `الصورة، العدد ${n}`);
+  }
+  function updateUI() {
+    const live = state.src === 'live';
+    engAI.setAttribute('aria-checked', String(state.engine === 'ai'));
+    engLocal.setAttribute('aria-checked', String(state.engine === 'local'));
+    aiOpts.hidden = state.engine !== 'ai';
+    localOpts.hidden = state.engine !== 'local';
+    countLabel.textContent = live ? 'التقط واحسب' : state.engine === 'ai' ? 'احسب بالذكاء الاصطناعي' : 'احسب';
+    countBtn.disabled = state.busy || (!state.img && !live);
+    camInput.disabled = galInput.disabled = state.busy;
+    document.querySelectorAll('.file-btn').forEach((l) => l.classList.toggle('is-disabled', state.busy));
+    liveBtn.disabled = state.busy;
+    liveLabel.textContent = live ? 'إيقاف الكاميرا' : 'كاميرا مباشرة';
+    zoomBtn.hidden = live || !state.box;
+    zoomLabel.textContent = state.viewMode === 'full' ? 'تكبير' : 'الصورة كاملة';
+    undoBtn.hidden = live;
+    undoBtn.disabled = !state.undo.length;
+    pickBtn.setAttribute('aria-pressed', String(state.pickMode));
+    pickLabel.textContent = state.pickMode ? 'اضغط على قطعة…' : state.exemplar ? 'كل الأنواع' : 'حدّد النوع';
+    pickBtn.disabled = live || !state.img || state.busy;
+    modeTag.textContent = live ? 'كاميرا مباشرة' : state.src === 'demo' ? 'صورة تجريبية' : 'صورتك';
+    busyEl.hidden = !state.busy;
+    toolsEl.hidden = state.busy;
+    stageEl.classList.toggle('picking', state.pickMode);
+  }
+  function defaultBox() {
+    const { w, h } = srcDims();
+    return { x: w * 0.1, y: h * 0.1, w: w * 0.8, h: h * 0.8 };
+  }
+  function clampBox() {
+    const { w, h } = srcDims(), b = state.box;
+    if (!b || !w) return;
+    b.w = Math.min(b.w, w); b.h = Math.min(b.h, h);
+    b.x = clamp(b.x, 0, w - b.w); b.y = clamp(b.y, 0, h - b.h);
+  }
+  const inBox = (x, y) => !!state.box && x >= state.box.x && y >= state.box.y && x <= state.box.x + state.box.w && y <= state.box.y + state.box.h;
+
+  function setImage(c, kind) {
+    state.img = c; state.src = kind; state.stillSrc = kind; state.imgId++;
+    state.viewMode = 'full'; state.exemplar = null; state.pickMode = false;
+    state.markers = []; state.result = null; state.undo = [];
+    state.box = defaultBox();
+    computeT(); updateHUD(); updateUI(); draw();
+  }
+  function afterNewImage() {
+    if (state.engine === 'local') runLocal(true);
+    else say('اسحب بإصبعك على الصورة لرسم مربع حول الأشياء، ثم اضغط «احسب بالذكاء الاصطناعي».');
+  }
+  async function loadFile(file) {
+    if (!file) return;
+    say('جارٍ فتح الصورة…');
+    const url = URL.createObjectURL(file);
+    try {
+      const img = new Image();
+      img.decoding = 'async';
+      img.src = url;
+      await img.decode();
+      const s = Math.min(1, 2048 / Math.max(img.naturalWidth, img.naturalHeight));
+      const c = mk(Math.max(1, Math.round(img.naturalWidth * s)), Math.max(1, Math.round(img.naturalHeight * s)));
+      const g = c.getContext('2d');
+      g.imageSmoothingQuality = 'high';
+      g.drawImage(img, 0, 0, c.width, c.height);
+      stopLive(false);
+      setImage(c, 'photo');
+      afterNewImage();
+    } catch (e) {
+      say('تعذّر فتح هذه الصورة. جرّب صورة أخرى بصيغة JPG أو PNG.', 'bad');
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
+
+  function runLocal(announce) {
+    if (!state.img || !state.box) return;
+    const res = localCount(state.img, state.box, { sensitivity: sensEl.value / 100, exemplar: state.exemplar });
+    let missed = false;
+    if (state.exemplar && !res.exFound) { state.exemplar = null; missed = true; }
+    state.markers = res.points.map((p) => ({ x: p.x, y: p.y, m: false }));
+    state.result = { source: 'local', item: state.exemplar ? 'قطعة مشابهة' : 'قطعة', unitR: res.r, edited: false };
+    state.undo = [];
+    updateHUD(); updateUI(); draw();
+    if (missed) say('لم أجد قطعة في المكان الذي ضغطته، فعددت كل الأنواع. اضغط «حدّد النوع» ثم اضغط على وسط القطعة.', 'warn');
+    else if (!announce) return;
+    else if (!res.count) say('لم أجد أشياء واضحة داخل المربع. اترك هامشاً من الخلفية داخل حدوده، أو ارفع الحساسية، أو جرّب الذكاء الاصطناعي.', 'warn');
+    else if (res.borderBusy > 0.35) say(`عددت ${res.count}. حدود المربع تمر فوق الأشياء، وسّعه قليلاً ليشمل شيئاً من الخلفية لنتيجة أدق.`, 'warn');
+    else say(`عددت ${res.count}. اضغط على أي شيء فاتني لإضافته، أو على علامة خاطئة لحذفها.`);
+  }
+  let localQueued = false;
+  function queueLocal() {
+    if (localQueued) return;
+    localQueued = true;
+    requestAnimationFrame(() => { localQueued = false; runLocal(true); });
+  }
+
+  /* ---------------- AI counting through Claude (artifact "sample" capability) ---------------- */
+  let sample = null, lastAIKey = '';
+  function setAIState(s) {
+    state.ai = s;
+    engAI.disabled = s !== 'ready';
+    aiNote.hidden = s === 'ready';
+    aiNote.textContent = s === 'checking' ? 'جارٍ التحقق من توفر الذكاء الاصطناعي…' : 'الذكاء الاصطناعي يعمل عند فتح الصفحة داخل Claude.';
+    if (s !== 'ready' && state.engine === 'ai') setEngine('local', false);
+    if (s === 'ready' && !state.userPickedEngine) setEngine(store.get('counter.engine') === 'local' ? 'local' : 'ai', false);
+    updateUI();
+  }
+  async function initAI() {
+    if (!window.claude || typeof window.claude.use !== 'function') { setAIState('off'); return; }
+    setAIState('checking');
+    try {
+      sample = await window.claude.use('sample');
+      if (!sample) { setAIState('off'); return; }
+      const lim = await sample.limits().catch(() => null);
+      setAIState(lim && lim.images ? 'ready' : 'off');
+    } catch (e) {
+      setAIState('off');
+    }
+  }
+  function setEngine(e, byUser) {
+    if (e === 'ai' && state.ai !== 'ready') return;
+    const changed = state.engine !== e;
+    state.engine = e;
+    state.pickMode = false;
+    if (byUser) { state.userPickedEngine = true; store.set('counter.engine', e); }
+    updateUI();
+    if (!changed || !byUser || state.src === 'live') return;
+    if (e === 'local' && state.img) runLocal(true);
+    else if (e === 'ai') say('اضغط «احسب بالذكاء الاصطناعي» ليعدّ Claude ما داخل المربع.');
+  }
+  function buildPrompt(hint) {
+    const what = hint
+      ? `Count every instance of: "${hint}" (the user typed this, possibly in Arabic).`
+      : 'Find the kind of object that repeats the most in the image and count every instance of it. Ignore the background and unrelated items.';
+    return [
+      'You are the counting engine of a phone app. The image is the exact region the user boxed with a finger.',
+      what,
+      'Method: decide exactly what one instance looks like, then scan the image in horizontal bands from top to bottom, and left to right within each band, so that nothing is skipped or counted twice. Count an instance when at least about half of it is visible, including ones partly hidden or cut by the image border.',
+      'For each instance give its approximate centre as [x, y] with integers from 0 to 1000, where [0, 0] is the top-left corner and [1000, 1000] the bottom-right corner of the image.',
+      'Reply with only this JSON object:',
+      '{"item_ar": "<what you counted, in Arabic, singular, 1-3 words>", "points": [[x, y], ...], "count": <number of points>, "confidence": "high" | "medium" | "low", "note_ar": "<one short Arabic sentence about anything that made the count uncertain, or an empty string>"}',
+      'If there is nothing to count, return "points": [] and "count": 0.',
+    ].join('\n\n');
+  }
+  function cropForAI(img, box) {
+    let s = Math.min(3, 1280 / Math.max(box.w, box.h));
+    if (box.w * box.h * s * s > 1.15e6) s = Math.sqrt(1.15e6 / (box.w * box.h));
+    const w = Math.max(16, Math.round(box.w * s)), h = Math.max(16, Math.round(box.h * s));
+    const c = mk(w, h), g = c.getContext('2d');
+    g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
+    g.drawImage(img, box.x, box.y, box.w, box.h, 0, 0, w, h);
+    return new Promise((resolve, reject) => c.toBlob((b) => (b ? resolve({ blob: b, w, h }) : reject(new Error('toBlob'))), 'image/jpeg', 0.9));
+  }
+  function normPoints(raw, crop) {
+    const pts = (Array.isArray(raw) ? raw : [])
+      .map((p) => (Array.isArray(p) ? [Number(p[0]), Number(p[1])] : p && typeof p === 'object' ? [Number(p.x), Number(p.y)] : null))
+      .filter((p) => p && Number.isFinite(p[0]) && Number.isFinite(p[1]));
+    if (!pts.length) return [];
+    let mx = 0;
+    for (const p of pts) mx = Math.max(mx, p[0], p[1]);
+    if (mx <= 1.0001) return pts.map(([x, y]) => [x * 1000, y * 1000]);
+    if (mx > 1000.5) return pts.map(([x, y]) => [(x / crop.w) * 1000, (y / crop.h) * 1000]);
+    return pts;
+  }
+  const toImg = ([x, y], box) => ({ x: box.x + (clamp(x, 0, 1000) / 1000) * box.w, y: box.y + (clamp(y, 0, 1000) / 1000) * box.h, m: false });
+  function partialPoints(text) {
+    const i = text.indexOf('"points"');
+    if (i < 0) return [];
+    const re = /\[\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*\]/g, out = [], sub = text.slice(i);
+    let m;
+    while ((m = re.exec(sub))) out.push([Number(m[1]), Number(m[2])]);
+    return out;
+  }
+  function estR(ms, box) {
+    if (ms.length < 2) return Math.max(box.w, box.h) * 0.04;
+    const n = Math.min(ms.length, 400), ds = [];
+    for (let i = 0; i < n; i++) {
+      let b = Infinity;
+      for (let j = 0; j < ms.length; j++) {
+        if (j === i) continue;
+        const d = (ms[i].x - ms[j].x) ** 2 + (ms[i].y - ms[j].y) ** 2;
+        if (d < b) b = d;
+      }
+      ds.push(Math.sqrt(b));
+    }
+    return Math.max(2, median(ds) * 0.42);
+  }
+  function sampleErrorText(e) {
+    switch (e && e.code) {
+      case 'rate_limited':
+        return e.reason === 'usage_limit' ? 'وصلت إلى حد الاستخدام في حسابك على Claude. جرّب لاحقاً، أو استخدم «سريع على الجهاز».' : 'طلبات كثيرة الآن. انتظر قليلاً ثم اضغط «احسب» مرة أخرى.';
+      case 'session_expired': return 'انتهت جلستك في Claude. سجّل الدخول مرة أخرى ثم أعد المحاولة.';
+      case 'image_rejected': return 'لم تُقبل الصورة. جرّب صورة أخرى أو مربعاً أصغر.';
+      case 'refused': return 'لم يستطع Claude التعامل مع هذه الصورة. جرّب صورة مختلفة.';
+      case 'invalid_json': case 'empty_completion': return 'لم يصل رد مفهوم هذه المرة. اضغط «احسب» للمحاولة مجدداً.';
+      default: return 'انقطع الاتصال أثناء العدّ. اضغط «احسب» للمحاولة مجدداً.';
+    }
+  }
+  const HIDE_CODES = ['not_granted', 'sampling_disabled', 'not_declared', 'capability_disabled', 'capability_removed', 'images_unavailable'];
+
+  async function runAI() {
+    if (!sample || state.ai !== 'ready') { say('الذكاء الاصطناعي يعمل عند فتح الصفحة داخل Claude. استخدم «سريع على الجهاز» هنا.', 'warn'); return; }
+    if (state.busy) return;
+    // lock first: a double tap must never send two requests on the viewer's usage
+    const ctl = new AbortController();
+    state.busy = true; state.aiCtl = ctl; state.pickMode = false;
+    state.markers = []; state.result = null; state.undo = [];
+    updateHUD(); updateUI(); draw(); say('');
+    const t0 = performance.now();
+    const tick = () => { busyText.textContent = `Claude يعدّ… ${Math.round((performance.now() - t0) / 1000)} ث`; };
+    tick();
+    const timer = setInterval(tick, 1000);
+    const box = { ...state.box };
+    const hint = hintEl.value.replace(/["\\\r\n]+/g, ' ').trim().slice(0, 60);
+    try {
+      let crop;
+      try { crop = await cropForAI(state.img, box); } catch (e) { throw { code: 'crop_failed' }; }
+      if (ctl.signal.aborted) throw { code: 'cancelled' };
+      const key = [state.imgId, box.x, box.y, box.w, box.h, hint, preciseEl.checked].join('|');
+      let streamed = 0;
+      const opts = {
+        images: [crop.blob],
+        signal: ctl.signal,
+        modelTier: preciseEl.checked ? 'complex' : 'default',
+        onText: ({ text }) => {
+          const pts = normPoints(partialPoints(text), crop);
+          if (pts.length === streamed) return;
+          streamed = pts.length;
+          state.markers = pts.map((p) => toImg(p, box));
+          const item = (text.match(/"item_ar"\s*:\s*"([^"]{1,40})"/) || [])[1];
+          state.result = { source: 'ai', streaming: true, item: item || 'جارٍ العدّ…', unitR: estR(state.markers, box) };
+          updateHUD(); draw();
+        },
+      };
+      if (key === lastAIKey) opts.cache = false;   // pressing Count again on the same box asks for a fresh count
+      lastAIKey = key;
+      const data = await sample.json(buildPrompt(hint), opts);
+      const pts = normPoints(data && data.points, crop).map((p) => toImg(p, box));
+      const declared = data && Number.isFinite(Number(data.count)) ? Math.max(0, Math.round(Number(data.count))) : pts.length;
+      const offset = declared > pts.length * 1.25 + 2 ? declared - pts.length : 0;
+      const item = data && typeof data.item_ar === 'string' && data.item_ar.trim() ? data.item_ar.trim().slice(0, 40) : (hint || 'قطعة');
+      state.markers = pts;
+      state.result = { source: 'ai', item, unitR: estR(pts, box), offset, edited: false };
+      const total = pts.length + offset;
+      const conf = { high: 'عالية', medium: 'متوسطة', low: 'منخفضة' }[data && data.confidence] || '';
+      let msg = total ? `عدّ Claude ${total}.` : 'لم يجد Claude أشياء متكررة داخل المربع.';
+      if (conf && total) msg += ` الثقة: ${conf}.`;
+      if (offset) msg += ` حدّد مواقع ${pts.length} منها فقط على الصورة.`;
+      if (data && typeof data.note_ar === 'string' && data.note_ar.trim()) msg += ' ' + data.note_ar.trim().slice(0, 160);
+      if (total) msg += ' اضغط على الصورة لإضافة ما فاته أو حذف الخطأ.';
+      say(msg);
+    } catch (e) {
+      state.markers = []; state.result = null;
+      if (e && e.code === 'cancelled') say('أوقفت العدّ.');
+      else if (e && e.code === 'crop_failed') say('تعذّر تجهيز الصورة. جرّب مرة أخرى.', 'bad');
+      else if (e && HIDE_CODES.includes(e.code)) {
+        setAIState('off');
+        say('لم يُسمح للصفحة باستخدام Claude، فانتقلت إلى «سريع على الجهاز».', 'warn');
+      } else say(sampleErrorText(e), 'bad');
+    } finally {
+      clearInterval(timer);
+      state.busy = false; state.aiCtl = null;
+      updateHUD(); updateUI(); draw();
+    }
+  }
+
+  /* ---------------- live camera (works when the page is opened outside Claude, over https) ---------------- */
+  let liveTimer = 0, liveRaf = 0;
+  function liveCapable() {
+    if (!navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== 'function' || !window.isSecureContext) return false;
+    try { if (window.claude && window.self !== window.top) return false; } catch (e) { return false; }
+    const fp = document.permissionsPolicy || document.featurePolicy;
+    if (fp && typeof fp.allowsFeature === 'function' && !fp.allowsFeature('camera')) return false;
+    return true;
+  }
+  let liveStarting = false, liveCounts = [];
+  async function startLive() {
+    if (state.busy || liveStarting || state.src === 'live') return;
+    liveStarting = true;
+    const imgAtStart = state.imgId;
+    say('اسمح للمتصفح باستخدام الكاميرا…');
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false });
+    } catch (err) {
+      liveStarting = false;
+      const name = err && err.name;
+      if (name === 'NotAllowedError' || name === 'SecurityError') say('لم يُسمح بالكاميرا. اسمح بها من إعدادات المتصفح ثم اضغط «كاميرا مباشرة»، أو استخدم «التقط صورة».', 'warn');
+      else if (name === 'NotFoundError' || name === 'OverconstrainedError') { say('لم أجد كاميرا في هذا الجهاز. استخدم «من الصور».', 'warn'); liveBtn.hidden = true; }
+      else say('تعذّر تشغيل الكاميرا. استخدم «التقط صورة».', 'warn');
+      return;
+    }
+    // the person picked a photo while the permission prompt was open: keep their photo
+    if (state.imgId !== imgAtStart || state.busy) { stream.getTracks().forEach((t) => t.stop()); liveStarting = false; return; }
+    state.stream = stream;
+    video.muted = true;
+    video.srcObject = stream;
+    try { await video.play(); } catch (e) { /* autoplay muted video; frames still arrive */ }
+    if (!video.videoWidth) {
+      await Promise.race([
+        new Promise((r) => video.addEventListener('loadedmetadata', r, { once: true })),
+        new Promise((r) => setTimeout(r, 4000)),
+      ]);
+    }
+    liveStarting = false;
+    if (!video.videoWidth) { stopLive(false); say('الكاميرا لم ترسل صورة. أعد المحاولة أو استخدم «التقط صورة».', 'warn'); return; }
+    liveCounts = [];
+    state.src = 'live'; state.viewMode = 'full'; state.markers = []; state.result = null; state.undo = [];
+    state.exemplar = null; state.pickMode = false;
+    state.box = defaultBox();
+    computeT(); updateHUD(); updateUI();
+    say('وجّه الكاميرا واسحب لرسم المربع حول الأشياء، ثم اضغط «التقط واحسب».');
+    const loop = () => {
+      if (state.src !== 'live') return;
+      const { w, h } = srcDims();
+      if (w + 'x' + h !== lastDims) { clampBox(); computeT(); }
+      draw();
+      liveRaf = requestAnimationFrame(loop);
+    };
+    loop();
+    liveTimer = setInterval(liveAnalyze, 350);
+  }
+  function liveAnalyze() {
+    if (state.src !== 'live' || !state.box || drag || !video.videoWidth) return;
+    const res = localCount(video, state.box, { sensitivity: sensEl.value / 100, exemplar: null, maxSide: 360 });
+    state.markers = res.points.map((p) => ({ x: p.x, y: p.y, m: false }));
+    // the shown number is the median of the last few frames, so a shaky hand doesn't make it flicker
+    liveCounts.push(res.count);
+    if (liveCounts.length > 5) liveCounts.shift();
+    state.result = { source: 'local', live: true, item: 'قطعة', unitR: res.r, display: median(liveCounts) };
+    updateHUD();
+  }
+  function stopLive(restore) {
+    if (state.stream) { state.stream.getTracks().forEach((t) => t.stop()); state.stream = null; }
+    clearInterval(liveTimer); cancelAnimationFrame(liveRaf);
+    video.srcObject = null;
+    if (state.src !== 'live') return;
+    state.src = state.stillSrc;
+    if (restore) {
+      state.box = defaultBox(); state.markers = []; state.result = null; state.undo = [];
+      computeT(); updateHUD(); updateUI(); draw();
+      if (state.engine === 'local') runLocal(true); else say('');
+    }
+  }
+  function captureFrame() {
+    const vw = video.videoWidth, vh = video.videoHeight;
+    if (!vw) return false;
+    const s = Math.min(1, 2048 / Math.max(vw, vh));
+    const c = mk(Math.round(vw * s), Math.round(vh * s));
+    c.getContext('2d').drawImage(video, 0, 0, c.width, c.height);
+    const b = state.box ? { x: state.box.x * s, y: state.box.y * s, w: state.box.w * s, h: state.box.h * s } : null;
+    stopLive(false);
+    setImage(c, 'photo');
+    if (b) { state.box = b; clampBox(); computeT(); draw(); }
+    return true;
+  }
+
+  /* ---------------- touch: draw / move / resize the box, tap to add or remove a marker ---------------- */
+  let drag = null;
+  function localXY(e) { const r = view.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
+  function hitTest(x, y) {
+    if (!state.box || state.viewMode !== 'full') return 'new';
+    const bx = state.box.x * T.s + T.ox, by = state.box.y * T.s + T.oy, bw = state.box.w * T.s, bh = state.box.h * T.s;
+    const corners = { nw: [bx, by], ne: [bx + bw, by], sw: [bx, by + bh], se: [bx + bw, by + bh] };
+    let best = null, bd = 28;
+    for (const k in corners) { const d = Math.hypot(x - corners[k][0], y - corners[k][1]); if (d < bd) { bd = d; best = k; } }
+    if (best) return best;
+    if (x > bx && x < bx + bw && y > by && y < by + bh) return 'move';
+    return 'new';
+  }
+  function applyDrag(p) {
+    const { w, h } = srcDims();
+    const [ax, ay] = toSrc(drag.x0, drag.y0), [bx, by] = toSrc(p.x, p.y);
+    const minS = Math.max(12, 28 / T.s);
+    const b0 = drag.box0;
+    let L, Tp, R, Bm;
+    if (drag.hit === 'move' && b0) {
+      const nx = clamp(b0.x + bx - ax, 0, w - b0.w), ny = clamp(b0.y + by - ay, 0, h - b0.h);
+      state.box = { x: nx, y: ny, w: b0.w, h: b0.h };
+      return;
+    }
+    if (drag.hit === 'new' || !b0) { L = ax; Tp = ay; R = bx; Bm = by; }
+    else {
+      L = b0.x; Tp = b0.y; R = b0.x + b0.w; Bm = b0.y + b0.h;
+      if (drag.hit[1] === 'w') L += bx - ax; else R += bx - ax;
+      if (drag.hit[0] === 'n') Tp += by - ay; else Bm += by - ay;
+    }
+    L = clamp(L, 0, w); R = clamp(R, 0, w); Tp = clamp(Tp, 0, h); Bm = clamp(Bm, 0, h);
+    const nb = { x: Math.min(L, R), y: Math.min(Tp, Bm), w: Math.abs(R - L), h: Math.abs(Bm - Tp) };
+    if (nb.w < minS || nb.h < minS) return;
+    state.box = nb;
+  }
+  const sameBox = (a, b) => !!a && !!b && a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h;
+  function onBoxChanged() {
+    if (state.src === 'live') return;
+    if (state.exemplar && !inBox(state.exemplar.x, state.exemplar.y)) state.exemplar = null;
+    if (state.engine === 'local') runLocal(true);
+    else {
+      state.markers = []; state.result = null; state.undo = [];
+      updateHUD(); draw();
+      say('تغيّر المربع. اضغط «احسب بالذكاء الاصطناعي» ليعدّ Claude من جديد.');
+    }
+    updateUI();
+  }
+  function pushUndo() {
+    state.undo.push({ markers: state.markers.map((m) => ({ ...m })), result: state.result ? { ...state.result } : null });
+    if (state.undo.length > 60) state.undo.shift();
+  }
+  function onTap(sx, sy) {
+    if (state.src === 'live') return;
+    const [x, y] = toSrc(sx, sy);
+    if (state.pickMode) {
+      state.pickMode = false;
+      if (!inBox(x, y)) { say('اضغط على قطعة داخل المربع.', 'warn'); updateUI(); return; }
+      state.exemplar = { x, y };
+      runLocal(false);
+      if (state.exemplar) say(`عددت ${state.markers.length} مما يشبه القطعة التي اخترتها. اضغط «كل الأنواع» للرجوع.`);
+      updateUI(); draw();
+      return;
+    }
+    if (!inBox(x, y)) return;
+    pushUndo();
+    if (!state.result) state.result = { source: 'manual', item: 'قطعة', unitR: Math.max(state.box.w, state.box.h) * 0.03, edited: false };
+    const tol = Math.max(16, markerRadius() + 8) / T.s;
+    let hit = -1, hd = tol * tol;
+    state.markers.forEach((m, i) => { const d = (m.x - x) ** 2 + (m.y - y) ** 2; if (d <= hd) { hd = d; hit = i; } });
+    if (hit >= 0) state.markers.splice(hit, 1); else state.markers.push({ x, y, m: true });
+    if (state.result.source !== 'manual') state.result.edited = true;
+    updateHUD(); updateUI(); draw();
+  }
+  view.addEventListener('pointerdown', (e) => {
+    if (state.busy || !srcDims().w || (e.pointerType === 'mouse' && e.button !== 0)) return;
+    const p = localXY(e);
+    try { view.setPointerCapture(e.pointerId); } catch (err) { /* capture is best effort */ }
+    drag = { id: e.pointerId, x0: p.x, y0: p.y, box0: state.box ? { ...state.box } : null, hit: hitTest(p.x, p.y), moved: false };
+    e.preventDefault();
+  });
+  view.addEventListener('pointermove', (e) => {
+    const p = localXY(e);
+    if (!drag) {
+      if (e.pointerType === 'mouse' && !state.pickMode) {
+        const h = hitTest(p.x, p.y);
+        view.style.cursor = h === 'move' ? 'move' : h === 'nw' || h === 'se' ? 'nwse-resize' : h === 'ne' || h === 'sw' ? 'nesw-resize' : '';
+      }
+      return;
+    }
+    if (e.pointerId !== drag.id) return;
+    if (!drag.moved && Math.hypot(p.x - drag.x0, p.y - drag.y0) < 8) return;
+    drag.moved = true;
+    if (state.viewMode !== 'full') return;
+    applyDrag(p);
+    if (state.src !== 'live') draw();
+  });
+  function endDrag(e, cancelled) {
+    if (!drag || e.pointerId !== drag.id) return;
+    const d = drag;
+    drag = null;
+    if (!d.moved) { if (!cancelled) onTap(d.x0, d.y0); return; }
+    if (state.viewMode === 'full' && !sameBox(d.box0, state.box)) onBoxChanged();
+  }
+  view.addEventListener('pointerup', (e) => endDrag(e, false));
+  view.addEventListener('pointercancel', (e) => endDrag(e, true));
+  view.addEventListener('contextmenu', (e) => e.preventDefault());
+
+  /* ---------------- wiring ---------------- */
+  function onCount() {
+    if (state.busy) return;
+    if (state.src === 'live' && !captureFrame()) return;
+    if (!state.img) { say('التقط صورة أولاً.', 'warn'); return; }
+    if (!state.box) state.box = defaultBox();
+    if (state.engine === 'ai') runAI(); else runLocal(true);
+  }
+  countBtn.addEventListener('click', onCount);
+  hintEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); onCount(); } });
+  engAI.addEventListener('click', () => setEngine('ai', true));
+  engLocal.addEventListener('click', () => setEngine('local', true));
+  sensEl.addEventListener('input', () => { if (state.engine === 'local' && state.img && state.src !== 'live') queueLocal(); });
+  pickBtn.addEventListener('click', () => {
+    if (state.exemplar) { state.exemplar = null; state.pickMode = false; runLocal(true); updateUI(); draw(); return; }
+    state.pickMode = !state.pickMode;
+    say(state.pickMode ? 'اضغط على قطعة واحدة داخل المربع، وسأعدّ ما يشبهها فقط.' : '');
+    updateUI();
+  });
+  camInput.addEventListener('change', () => { const f = camInput.files && camInput.files[0]; camInput.value = ''; loadFile(f); });
+  galInput.addEventListener('change', () => { const f = galInput.files && galInput.files[0]; galInput.value = ''; loadFile(f); });
+  liveBtn.addEventListener('click', () => { if (state.src === 'live') stopLive(true); else startLive(); });
+  zoomBtn.addEventListener('click', () => {
+    state.viewMode = state.viewMode === 'full' ? 'box' : 'full';
+    computeT(); draw(); updateUI();
+  });
+  undoBtn.addEventListener('click', () => {
+    const prev = state.undo.pop();
+    if (!prev) return;
+    state.markers = prev.markers; state.result = prev.result;
+    updateHUD(); updateUI(); draw();
+  });
+  stopBtn.addEventListener('click', () => { if (state.aiCtl) state.aiCtl.abort(); });
+  copyBtn.addEventListener('click', async () => {
+    const text = `${hudLabel.textContent}: ${hudNum.textContent}`;
+    try { await navigator.clipboard.writeText(text); say('نسخت النتيجة.'); }
+    catch (e) { say(`لم يسمح المتصفح بالنسخ. النتيجة: ${text}`, 'warn'); }
+  });
+  window.addEventListener('pagehide', () => stopLive(false));
+
+  const demo = makeDemo();
+  state.img = demo.canvas;
+  state.box = { ...demo.box };
+  resize();
+  runLocal(false);
+  updateUI();
+  say('هذه صورة تجريبية. اضغط «التقط صورة» وصوّر أشياءك، ثم اسحب بإصبعك على الصورة لرسم مربع حولها.');
+  // Opened as a normal web page (not inside Claude): ask for the camera straight away.
+  if (liveCapable()) { liveBtn.hidden = false; startLive(); }
+  else liveBtn.hidden = true;
+  new ResizeObserver(() => resize()).observe(stageEl);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => draw());
+  initAI();
+})();
+</script>
+</body>
+</html>
